@@ -31,19 +31,33 @@ jobs:
           python -m pip install --upgrade pip
           pip install DrissionPage xvfbwrapper requests SpeechRecognition pydub
 
-      - name: Setup Gost Proxy
+      - name: 安装 Linux OpenVPN 客户端
         run: |
-          # 👇👇👇 正在启动gost代理 👇👇👇                
-          wget -q https://github.com/ginuerzh/gost/releases/download/v2.11.5/gost-linux-amd64-2.11.5.gz
-          gunzip -f gost-linux-amd64-2.11.5.gz
-          chmod +x gost-linux-amd64-2.11.5
+          sudo apt-get update
+          sudo apt-get install -y openvpn resolvconf
+
+      - name: 释放你指定的黄金节点配置文件
+        run: |
+          # 从 GitHub Secrets 中安全读取你填入的配置文件文本，并写入虚拟机的临时文件中
+          cat << 'EOF' > runner_target.ovpn
+          ${{ secrets.SELECTED_OVPN_DATA }}
+          EOF
+
+      - name: 启动 OpenVPN 加密隧道 (全接管全局路由模式)
+        run: |
+          # 启动 VPN 实例并转入后台运行
+          sudo openvpn --config runner_target.ovpn --daemon vpn_instance
           
-          echo "🔗 启动 Gost 隧道: $SOCKS5_URL"
-          ./gost-linux-amd64-2.11.5 -L=http://:1080 -F="${{ secrets.SOCKS5_URL }}" > gost.log 2>&1 &
-          
-          sleep 5
-          echo "--- 🌐 连通性测试 ---"
-          curl -I -x http://127.0.0.1:1080 https://www.google.com
+          echo "[*] 正在等待加密隧道握手与网卡路由调配..."
+          # 预留 8 秒给 OpenVPN 完成与目标节点的物理握手
+          sleep 8
+
+      - name: 物理落地 IP 属性验证
+        run: |
+          echo "=== 正在验证当前虚拟机容器的出口真实 IP ==="
+          # 如果隧道打通，这里打印出来的就是你指定的那个高清洁度节点的海外 IP 了
+          curl --connect-timeout 10 http://ip-api.com/json/?lang=zh-CN || true
+
 
       - name: Run Renew Script
         env:
